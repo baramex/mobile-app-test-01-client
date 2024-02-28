@@ -81,13 +81,11 @@ function ConnectToClient({ socket }) {
 
     useEffect(() => {
         if (state === "connected" && socketId) {
-            let interval = setInterval(async () => {
-                const location = await Location.getLastKnownPositionAsync() || await Location.getCurrentPositionAsync();
+            const watch = Location.watchPositionAsync({ timeInterval: 5000 }, location => {
                 console.log('Sending location', location);
                 socket.emit('location', { id: socketId, location });
-            }, 5000);
-
-            return () => clearInterval(interval);
+            });
+            return () => watch.then(w => w.remove());
         }
     }, [state, socketId]);
 
