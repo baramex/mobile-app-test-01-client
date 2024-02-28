@@ -17,7 +17,8 @@
     "react-native": "0.73.2",
     "react-native-modal": "^13.0.1",
     "react-native-web": "~0.19.6",
-    "socket.io-client": "^4.7.4"
+    "socket.io-client": "^4.7.4",
+    "expo-location": "~16.5.4"
   },
   "devDependencies": {
     "@babel/core": "^7.20.0"

@@ -4,6 +4,7 @@ import { StyleSheet, Text, View } from 'react-native';
 import ReactNativeModal from 'react-native-modal';
 import { Button, TextInput } from 'react-native-web';
 import { io } from 'socket.io-client';
+import * as Location from 'expo-location';
 
 export default function App() {
     const [connected, setConnected] = useState(null);
@@ -31,7 +32,7 @@ export default function App() {
             <Text>{connected !== null ? connected ? "Connected to the server" : "Disconnected from the server" : "Connecting to the server..."}</Text>
             {socket?.id ? <Text>{socket.id}</Text> : null}
 
-            <ConnectToClient socket={socket} />
+            {connected && socket ? <ConnectToClient socket={socket} /> : null}
 
             <StatusBar style="auto" />
         </View>
@@ -39,39 +40,35 @@ export default function App() {
 }
 
 function ConnectToClient({ socket }) {
-    const [socketId, setSocketId] = useState('');
-    const [connected, setConnected] = useState(false);
-    const [connecting, setConnecting] = useState(false);
-    const [requested, setRequested] = useState(false);
+    const [state, setState] = useState('idle');
     const [error, setError] = useState(null);
-    const [request, setRequest] = useState(null);
+    const [socketId, setSocketId] = useState('');
+    const [locationStatus, requestPermission] = Location.useForegroundPermissions();
+    const [location, setLocation] = useState(null);
 
     useEffect(() => {
-        if (!socket) return;
-
         socket.on("connectionRequested", (data) => {
             console.log('Connection requested', data);
-            setConnecting(false);
-            setRequested(true);
-            setConnected(false);
-            setError(null);
+            setState('awaiting');
         });
         socket.on("connectionCreated", (data) => {
             console.log('Connection created', data);
-            setRequested(false);
-            setConnected(data);
-            setConnecting(false);
+            setState('connected');
             setError(null);
         });
         socket.on("connectionRejected", (error) => {
             console.log('Connection error', error);
-            setRequested(false);
-            setConnecting(false);
+            setState('idle');
             setError(error.message);
-            setConnected(false);
+            setSocketId('');
         });
         socket.on("connectionRequest", data => {
-            setRequest(data);
+            setState('requested');
+            setSocketId(data.id);
+        });
+        socket.on("location", data => {
+            console.log('Location received', data);
+            setLocation(data.location);
         });
 
         return () => {
@@ -82,41 +79,78 @@ function ConnectToClient({ socket }) {
         }
     }, [socket]);
 
+    useEffect(() => {
+        if (state === "connected" && socketId) {
+            let interval = setInterval(async () => {
+                const location = await Location.getLastKnownPositionAsync() || await Location.getCurrentPositionAsync();
+                console.log('Sending location', location);
+                socket.emit('location', { id: socketId, location });
+            }, 5000);
+
+            return () => clearInterval(interval);
+        }
+    }, [state, socketId]);
+
+    async function checkLocationPermission() {
+        if (locationStatus.status === 'granted') {
+            return true;
+        }
+        const { status } = await requestPermission();
+        return status === 'granted';
+    }
+
+    async function request() {
+        if (!await checkLocationPermission()) {
+            setError('Location permission is required');
+            return;
+        }
+        setState('requesting');
+        setSocketId(socketId);
+        setError(null);
+        socket.emit('createConnection', { id: socketId });
+    }
+
+    async function accept() {
+        if (!await checkLocationPermission()) {
+            setError('Location permission is required');
+            return;
+        }
+        socket.emit('acceptConnection', { id: socketId });
+    }
+
+    function reject() {
+        setSocketId('');
+        setState('idle');
+        socket.emit('rejectConnection', { id: socketId });
+    }
+
     return <View>
-        <Text>Share live location to another client</Text>
         <View>
-            {connected ? <Text>Connected to {connected.id}</Text> : <>
-                <TextInput disabled={connected || connecting || requested} placeholder="Socket ID" value={socketId} onChangeText={setSocketId} />
-                <Button disabled={connected || connecting || requested} onPress={() => { setConnected(true); createConnection(socketId, socket); }} title="Start sharing" />
+            {state === "connected" ? <Text>Connected to {socketId}</Text> : <>
+                <Text>Share live location to another client</Text>
+                <TextInput disabled={state !== "idle"} placeholder="Socket ID" value={socketId} onChangeText={setSocketId} />
+                <Button disabled={state !== "idle"} onPress={request} title="Start sharing" />
             </>}
             {error ? <Text>{error}</Text> : null}
-            {connecting ? <Text>Connecting...</Text> : null}
-            {requested ? <Text>Connection requested, awaiting reply...</Text> : null
-            }<ReactNativeModal
-                isVisible={!!request}>
+            {state === "requesting" ? <Text>Connection request sent...</Text> : null}
+            {state === "awaiting" ? <Text>Connection requested, awaiting reply...</Text> : null}
+            {state === "connected" && location ? <Text>
+                Latitude: {location.coords.latitude}<br />
+                Longitude: {location.coords.longitude}
+            </Text> : null}
+            <ReactNativeModal
+                isVisible={state === "requested"}>
                 <View>
-                    <Text>Request from {request?.id}</Text>
-                    <Button title="Accept" onPress={() => { acceptConnection(request?.id, socket); setRequest(null); }} />
-                    <Button title="Reject" onPress={() => { rejectConnection(request?.id, socket); setRequest(null); }} />
+                    <Text>Request from {socketId}</Text>
+                    <Button title="Accept" onPress={accept} />
+                    <Button title="Reject" onPress={reject} />
                     <View style={{ marginTop: 150 }}>
-                        <Button title="Hide modal" onPress={setRequest} />
+                        <Button title="Hide modal" onPress={reject} />
                     </View>
                 </View>
             </ReactNativeModal>
         </View>
     </View>
-}
-
-function createConnection(socketId, socket) {
-    socket.emit('createConnection', { id: socketId });
-}
-
-function acceptConnection(socketId, socket) {
-    socket.emit('acceptConnection', { id: socketId });
-}
-
-function rejectConnection(socketId, socket) {
-    socket.emit('rejectConnection', { id: socketId });
 }
 
 const styles = StyleSheet.create({
