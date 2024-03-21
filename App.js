@@ -1,8 +1,7 @@
 import { StatusBar } from 'expo-status-bar';
 import { useEffect, useState } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { Button, StyleSheet, Text, TextInput, View } from 'react-native';
 import ReactNativeModal from 'react-native-modal';
-import { Button, TextInput } from 'react-native-web';
 import { io } from 'socket.io-client';
 import * as Location from 'expo-location';
 
@@ -11,7 +10,7 @@ export default function App() {
     const [socket, setSocket] = useState(null);
 
     useEffect(() => {
-        const newSocket = io('http://localhost:3000');
+        const newSocket = io('https://dev.baramex.me:3000');
         setSocket(newSocket);
 
         newSocket.on('connect', () => {
@@ -21,6 +20,11 @@ export default function App() {
 
         newSocket.on("disconnect", () => {
             console.log('Disconnected from the server');
+            setConnected(false);
+        });
+
+        newSocket.on("connect_error", (error) => {
+            console.error('Connection error', error);
             setConnected(false);
         });
 
@@ -123,32 +127,31 @@ function ConnectToClient({ socket }) {
     }
 
     return <View>
-        <View>
-            {state === "connected" ? <Text>Connected to {socketId}</Text> : <>
-                <Text>Share live location to another client</Text>
-                <TextInput disabled={state !== "idle"} placeholder="Socket ID" value={socketId} onChangeText={setSocketId} />
-                <Button disabled={state !== "idle"} onPress={request} title="Start sharing" />
-            </>}
-            {error ? <Text>{error}</Text> : null}
-            {state === "requesting" ? <Text>Connection request sent...</Text> : null}
-            {state === "awaiting" ? <Text>Connection requested, awaiting reply...</Text> : null}
-            {state === "connected" && location ? <Text>
-                Latitude: {location.coords.latitude}<br />
-                Longitude: {location.coords.longitude}
-            </Text> : null}
-            <ReactNativeModal
-                isVisible={state === "requested"}>
-                <View>
-                    <Text>Request from {socketId}</Text>
-                    <Button title="Accept" onPress={accept} />
-                    <Button title="Reject" onPress={reject} />
-                    <View style={{ marginTop: 150 }}>
-                        <Button title="Hide modal" onPress={reject} />
-                    </View>
+        {state === "connected" ? <Text>Connected to {socketId}</Text> : <>
+            <Text>Share live location to another client</Text>
+            <TextInput disabled={state !== "idle"} placeholder="Socket ID" value={socketId} onChangeText={setSocketId} />
+            <Button disabled={state !== "idle"} onPress={request} title="Start sharing" />
+        </>}
+        {error ? <Text>{error}</Text> : null}
+        {state === "requesting" ? <Text>Connection request sent...</Text> : null}
+        {state === "awaiting" ? <Text>Connection requested, awaiting reply...</Text> : null}
+        {state === "connected" && location ? <>
+            <Text>Latitude: {location.coords.latitude}</Text>
+            <Text>Longitude: {location.coords.longitude}</Text>
+            <Text>Last update: {new Date(location.timestamp).toLocaleTimeString()}</Text>
+        </> : null}
+        <ReactNativeModal
+            isVisible={state === "requested"}>
+            <View>
+                <Text>Request from {socketId}</Text>
+                <Button title="Accept" onPress={accept} />
+                <Button title="Reject" onPress={reject} />
+                <View style={{ marginTop: 150 }}>
+                    <Button title="Hide modal" onPress={reject} />
                 </View>
-            </ReactNativeModal>
-        </View>
-    </View>
+            </View>
+        </ReactNativeModal>
+    </View>;
 }
 
 const styles = StyleSheet.create({
